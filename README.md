@@ -1,7 +1,7 @@
-MultiChain Explorer
+BVS Explorer
 ===================
 
-MultiChain Explorer is a free block chain browser for [MultiChain](http://www.multichain.com/) blockchains.
+The Blockachin Voting Sytem (BVS) Explorer is a free block chain browser for [MultiChain](http://www.multichain.com/) blockchains.
 
 https://github.com/MultiChain/multichain-explorer
 
@@ -11,14 +11,14 @@ https://github.com/MultiChain/multichain-explorer
     Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
 
-Welcome to MultiChain Explorer!
+Welcome to BVS Explorer!
 ===============================
 
 This software reads the MultiChain block file, transforms and loads the
 data into a database, and presents a web interface similar to that
 popularized by Bitcoin block explorers like http://blockexplorer.com/.
 
-MultiChain Explorer is a fork of the popular [Abe](https://github.com/bitcoin-abe/bitcoin-abe) project to add support for MultiChain blockchains with assets and permissions.  MultiChain nodes must be online for all Explorer functions to work.
+The Blockachin Voting Sytem (BVS) Explorer is a fork of the MultiChain Explorer. MultiChain Explorer is a fork of the popular [Abe](https://github.com/bitcoin-abe/bitcoin-abe) project to add support for MultiChain blockchains with assets and permissions.  MultiChain nodes must be online for all Explorer functions to work.
 
 MultiChain Explorer is still under  development, so things may break or change!
 
