@@ -52,7 +52,7 @@ ABE_VERSION = __version__
 ABE_URL = 'https://github.com/BlockchainVotingOrganisation/bvs-explorer/'
 
 COPYRIGHT_YEARS = '2011-2016'
-COPYRIGHT = "Coin Sciences Ltd and Abe developers"
+COPYRIGHT = "Coin Sciences Ltd and Abe developers, Changed Code: Louis Göttertz 2016"
 COPYRIGHT_URL = 'https://github.com/BlockchainVotingOrganisation/bvs-explorer/'
 # MULTICHAIN END
 
