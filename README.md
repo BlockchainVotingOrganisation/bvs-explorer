@@ -3,7 +3,7 @@ BVS Explorer
 
 The Blockachin Voting Sytem (BVS) Explorer is a free block chain browser for [MultiChain](http://www.multichain.com/) blockchains.
 
-https://github.com/MultiChain/multichain-explorer
+https://github.com/BlockchainVotingOrganisation/bvs-explorer
 
     Copyright(C) 2015,2016 by Coin Sciences Ltd.
     Copyright(C) 2011,2012,2013 by Abe developers.
