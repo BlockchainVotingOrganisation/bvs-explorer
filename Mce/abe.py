@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # Copyright(C) 2011,2012,2013,2014 by Abe developers.
+# Changes by Louis Göttertz <com@goettertz.de> 
+# Copyright (C) 2016 by BlockchainVotingOrganisation
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -47,11 +49,11 @@ __version__ = version.__version__
 # MULTICHAIN START
 ABE_APPNAME = "Blockchain Voting Explorer"
 ABE_VERSION = __version__
-ABE_URL = 'https://github.com/multichain/multichain-explorer'
+ABE_URL = 'https://github.com/BlockchainVotingOrganisation/bvs-explorer/'
 
 COPYRIGHT_YEARS = '2011-2016'
 COPYRIGHT = "Coin Sciences Ltd and Abe developers"
-COPYRIGHT_URL = 'https://github.com/multichain/multichain-explorer'
+COPYRIGHT_URL = 'https://github.com/BlockchainVotingOrganisation/bvs-explorer/'
 # MULTICHAIN END
 
 TIME1970 = time.strptime('1970-01-01','%Y-%m-%d')
