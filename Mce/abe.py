@@ -45,7 +45,7 @@ import threading
 
 __version__ = version.__version__
 # MULTICHAIN START
-ABE_APPNAME = "MultiChain Explorer"
+ABE_APPNAME = "Blockchain Voting Explorer"
 ABE_VERSION = __version__
 ABE_URL = 'https://github.com/multichain/multichain-explorer'
 
