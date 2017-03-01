@@ -435,7 +435,9 @@ class DataStore(object):
                             address_checksum = binascii.unhexlify(x)
                             x = params.get("network-message-start","f9beb4d9").strip()
                             chain_magic = binascii.unhexlify(x)
+                            protocol_version = params.get("protocol-version",10007)
                         else:
+                            protocol_version = 10007
                             chain_magic = '\xf9\xbe\xb4\xd9'
                             address_checksum = "\0\0\0\0"
                             addr_vers = dircfg.get('address_version')
@@ -461,12 +463,12 @@ class DataStore(object):
                             INSERT INTO chain (
                                 chain_id, chain_name, chain_code3,
                                 chain_magic, chain_address_checksum, chain_address_version, chain_script_addr_vers, chain_policy,
-                                chain_decimals
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                chain_decimals, chain_protocol_version
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                                   (chain_id, chain_name, code3,
                                    store.binin(chain_magic), store.binin(address_checksum), store.binin(addr_vers), store.binin(script_addr_vers),
 # MULTICHAIN END
-                                   dircfg.get('policy', chain_name), decimals))
+                                   dircfg.get('policy', chain_name), decimals, protocol_version))
                         store.commit()
                         store.log.warning("Assigned chain_id %d to %s",
                                           chain_id, chain_name)
@@ -503,10 +505,11 @@ class DataStore(object):
             no_bit8_chains = [no_bit8_chains]
 # MULTICHAIN START
         for chain_id, magic, chain_name, chain_code3, address_checksum, address_version, script_addr_vers, \
-                chain_policy, chain_decimals in \
+                chain_policy, chain_decimals, chain_protocol_version in \
                 store.selectall("""
                     SELECT chain_id, chain_magic, chain_name, chain_code3,
-                           chain_address_checksum, chain_address_version, chain_script_addr_vers, chain_policy, chain_decimals
+                           chain_address_checksum, chain_address_version, chain_script_addr_vers, chain_policy, chain_decimals,
+                           chain_protocol_version
                       FROM chain
                 """):
 # MULTICHAIN END
@@ -517,6 +520,7 @@ class DataStore(object):
                 code3           = chain_code3 and unicode(chain_code3),
 # MULTICHAIN START
                 address_checksum = store.binout(address_checksum),
+                protocol_version = int(chain_protocol_version),
 # MULTICHAIN END
                 address_version = store.binout(address_version),
                 script_addr_vers = store.binout(script_addr_vers),
@@ -773,6 +777,7 @@ store._ddl['configvar'],
     chain_policy VARCHAR(255) NOT NULL,
     chain_decimals NUMERIC(2) NULL,
     chain_last_block_id NUMERIC(14) NULL,
+    chain_protocol_version NUMERIC(10) NOT NULL,
     FOREIGN KEY (chain_last_block_id)
         REFERENCES block (block_id)
 )""",
@@ -1012,12 +1017,13 @@ store._ddl['txout_approx'],
         store.sql("""
             INSERT INTO chain (
                 chain_id, chain_magic, chain_name, chain_code3,
-                chain_address_checksum, chain_address_version, chain_script_addr_vers, chain_policy, chain_decimals
+                chain_address_checksum, chain_address_version, chain_script_addr_vers, chain_policy, chain_decimals,
+                chain_protocol_version
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                   (chain.id, store.binin(chain.magic), chain.name,
                    chain.code3, store.binin(chain.address_checksum), store.binin(chain.address_version), store.binin(chain.script_addr_vers),
+                   chain.policy, chain.decimals, chain.protocol_version))
 # MULTICHAIN END
-                   chain.policy, chain.decimals))
 
     def get_lock(store):
         if store.version_below('Abe26'):
@@ -1640,6 +1646,8 @@ store._ddl['txout_approx'],
         elif script_type == Chain.SCRIPT_TYPE_MULTICHAIN_P2SH:
             txout['address_version'] = chain.script_addr_vers
             txout['binaddr'] = data
+        elif script_type == Chain.SCRIPT_TYPE_MULTICHAIN_ENTITY_PERMISSION:
+            txout['binaddr'] = data['pubkey_hash']
         # MULTICHAIN END
         else:
             txout['binaddr'] = None
@@ -1975,7 +1983,7 @@ store._ddl['txout_approx'],
             if pubkey_id is not None and script_type in [Chain.SCRIPT_TYPE_MULTICHAIN, Chain.SCRIPT_TYPE_MULTICHAIN_P2SH]:
                 data = util.get_multichain_op_drop_data(binscript)
                 if data is not None:
-                    opdrop_type, val = util.parse_op_drop_data(data)
+                    opdrop_type, val = util.parse_op_drop_data(data, chain)
                     if opdrop_type==util.OP_DROP_TYPE_ISSUE_ASSET:
                         (prefix, ) = struct.unpack("<H", dbhash[0:2])
                         new_asset_id = store.new_id("asset")
@@ -2005,7 +2013,11 @@ store._ddl['txout_approx'],
                         for dict in val:
                             quantity = dict['quantity']
                             assetref = dict['assetref']
-                            prefix = int( assetref.split('-')[-1] )
+                            if chain.protocol_version < 10007:
+                                prefix = int( assetref.split('-')[-1] )
+                            else:
+                                (prefix, ) = struct.unpack("<H", binascii.unhexlify(assetref)[0:2])
+
                             vers = chain.address_version
                             the_script_type, pubkey_hash = chain.parse_txout_script(txout['scriptPubKey'])
                             checksum = chain.address_checksum
@@ -2048,8 +2060,9 @@ store._ddl['txout_approx'],
                         #print 'Permissions command detected'
                         pass
             elif pubkey_id is None and script_type is Chain.SCRIPT_TYPE_MULTICHAIN_OP_RETURN:
-                opreturn_type, val = util.parse_op_return_data(data)
+                opreturn_type, val = util.parse_op_return_data(data, chain)
                 # Extract mandatory metadata and update asset column
+                # Legacy protocol 10006
                 if opreturn_type==util.OP_RETURN_TYPE_ISSUE_ASSET:
                     store.sql("""
                         UPDATE asset
@@ -2060,6 +2073,20 @@ store._ddl['txout_approx'],
                     INSERT INTO asset_txid (asset_id, tx_id, txout_pos)
                     VALUES ( (SELECT asset_id FROM asset WHERE tx_id = ? AND name = ?) , ?, ?)""",
                     (tx_id, unicode(val['name'], 'latin-1'), tx_id, pos))
+            elif pubkey_id is None and script_type is Chain.SCRIPT_TYPE_MULTICHAIN_SPKN:
+                # Protocol 10007
+                opdrop_type, val = util.parse_op_drop_data(data, chain)
+                if opdrop_type==util.OP_DROP_TYPE_SPKN_NEW_ISSUE:
+                    store.sql("""
+                         UPDATE asset
+                            SET name = ?, multiplier = ?
+                          WHERE tx_id = ?
+                          """, (unicode(val['Asset Name'], 'latin-1'), val['Quantity Multiple'], tx_id))
+                    store.sql("""
+                         INSERT INTO asset_txid (asset_id, tx_id, txout_pos)
+                         VALUES ( (SELECT asset_id FROM asset WHERE tx_id = ? AND name = ?) , ?, ?)""",
+                         (tx_id, unicode(val['Asset Name'], 'latin-1'), tx_id, pos))
+
 # MULTICHAIN END
 
         # Import transaction inputs.
@@ -2105,7 +2132,13 @@ store._ddl['txout_approx'],
             if txout_id is not None and binscript is not None:
                 spent_tx_hash = store.hashout(txin['prevout_hash'])     # reverse out, otherwise it is backwards
                 vers = chain.address_version
-                the_script_type, pubkey_hash = chain.parse_txout_script(binscript)
+                the_script_type, data = chain.parse_txout_script(binscript)     # data is usually the pubkey_hash but could be dict
+
+                if the_script_type is Chain.SCRIPT_TYPE_MULTICHAIN_ENTITY_PERMISSION:
+                    pubkey_hash = data['pubkey_hash']
+                else:
+                    pubkey_hash = data
+
                 if the_script_type is Chain.SCRIPT_TYPE_MULTICHAIN_P2SH:
                     vers = chain.script_addr_vers
                 checksum = chain.address_checksum
@@ -2120,7 +2153,7 @@ store._ddl['txout_approx'],
                 if the_script_type in [Chain.SCRIPT_TYPE_MULTICHAIN, Chain.SCRIPT_TYPE_MULTICHAIN_P2SH]:
                     data = util.get_multichain_op_drop_data(binscript)
                     if data is not None:
-                        opdrop_type, val = util.parse_op_drop_data(data)
+                        opdrop_type, val = util.parse_op_drop_data(data, chain)
                         if opdrop_type==util.OP_DROP_TYPE_ISSUE_ASSET:
                             # Spending issue asset tx
                             #print "Issue {:d} raw units of new asset".format(val)
@@ -2144,7 +2177,13 @@ store._ddl['txout_approx'],
                             for dict in val:
                                 quantity = dict['quantity']
                                 assetref = dict['assetref']
-                                prefix = int( assetref.split('-')[-1] )
+                                if chain.protocol_version < 10007:
+                                    prefix = int( assetref.split('-')[-1] )
+                                else:
+                                    (prefix, ) = struct.unpack("<H", binascii.unhexlify(assetref)[0:2])
+                                    # If txid begins 5484... the prefix is 0x8454 in decimal.
+                                    # x-y-zzzz  where zzzz = 33876
+
                                 #print "Spending sent asset at {}, qty = {}, prefix = {} ".format(address, quantity, prefix)
 
                                 store.sql("""
@@ -2782,6 +2821,8 @@ store._ddl['txout_approx'],
         if script_type == Chain.SCRIPT_TYPE_MULTICHAIN:
             return store.pubkey_hash_to_id(data)
 
+        if script_type == Chain.SCRIPT_TYPE_MULTICHAIN_ENTITY_PERMISSION:
+            return store.pubkey_hash_to_id(data['pubkey_hash'])
 # MULTICHAIN END
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
@@ -4004,6 +4045,7 @@ store._ddl['txout_approx'],
     def list_transactions(store, chain, count):
         """
         Get the result of listtransactions json-rpc command as json object
+        NOTE: This call does not work with MultiChain v2 scalable wallets.
         :param chain:
         :return: json object
         """
@@ -4012,6 +4054,178 @@ store._ddl['txout_approx'],
         resp = None
         try:
             resp = util.jsonrpc(multichain_name, url, "listtransactions", "*", count)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+        return resp
+
+    def get_number_of_streams(store, chain):
+        """
+        Get the number of streams
+        :param chain:
+        :return: Integer number of streams
+        """
+        resp = store.list_streams(chain)
+        if resp is not None:
+            return len(resp)
+        return 0
+
+    def list_stream(store, chain, name):
+        """
+        Get the result of liststreams json-rpc command as json object.
+        We ask for a specific stream and verbose data.
+        :param chain:
+        :param name:
+        :return: None or json object for the stream
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            resp = util.jsonrpc(multichain_name, url, "liststreams", name, True)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+
+        if len(resp) < 1:
+            return None
+        return resp[0]
+
+    def list_streams(store, chain, count=0):
+        """
+        Get the result of liststreams json-rpc command as json object.
+        We ask for all streams and verbose data, such as the creators field.
+        :param chain:
+        :param count: by default all
+        :return: json object
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            # liststreans streamref verbose count start
+            # e.g. liststreams "*" true 2 -2
+            # display last two streams.
+            # e.g. liststreams "*" true 2 0
+            # display first two streams
+
+            # all streams
+            if count <= 0:
+                resp = util.jsonrpc(multichain_name, url, "liststreams", "*", True)
+            else:
+                resp = util.jsonrpc(multichain_name, url, "liststreams", "*", True, count, -count)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+        return resp
+
+    def list_stream_items(store, chain, streamref, count=10, start=-10):
+        """
+        Get the result of liststreamitems json-rpc command as json object.
+        We ask for all streams and verbose data, such as the creators field.
+        :param chain:
+        :param streamref:
+        :param count:
+        :param start:
+        :return: json object
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            # liststreamitems streamref verbose count start localordering
+            resp = util.jsonrpc(multichain_name, url, "liststreamitems", streamref, True, count, start)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+        return resp
+
+    def list_stream_publisher_items(store, chain, streamref, publisher, count=10, start=-10):
+        """
+        Get the result of liststreampublisheritems json-rpc command as json object.
+        We ask for all streams and verbose data, such as the creators field.
+        :param chain:
+        :param streamref:
+        :param publisher:
+        :param count:
+        :param start:
+        :return: json object
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            # liststreampublisheritems streamref publisheraddress verbose count start localordering
+            resp = util.jsonrpc(multichain_name, url, "liststreampublisheritems", streamref, publisher, True, count, start)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+        return resp
+
+    def list_stream_publishers(store, chain, streamref, publisher="*"):
+        """
+        Get the result of liststreampublisheritems json-rpc command as json object.
+        We ask for all streams and verbose data, such as the creators field.
+        :param chain:
+        :param streamref:
+        :param publisher:
+        :return: json object
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            # liststreampublishers streamref publisheraddress
+            resp = util.jsonrpc(multichain_name, url, "liststreampublishers", streamref, publisher)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+        return resp
+
+    def list_stream_keys(store, chain, streamref, keys="*"):
+        """
+        Get the result of liststreamkeys json-rpc command as json object.
+        We ask for all keys and verbose data, such as the creators field.
+        :param chain:
+        :param streamref:
+        :param keys:
+        :return: json object
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            # liststreamkeys streamref keys
+            resp = util.jsonrpc(multichain_name, url, "liststreamkeys", streamref, keys)
+        except util.JsonrpcException as e:
+            raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
+        except IOError as e:
+            raise e
+        return resp
+
+    def list_stream_key_items(store, chain, streamref, streamkey, count=10, start=-10):
+        """
+        Get the result of liststreamkeyitems json-rpc command as json object.
+        We ask for all streams and verbose data, such as the creators field.
+        :param chain:
+        :param streamref:
+        :param key:
+        :param count:
+        :param start:
+        :return: json object
+        """
+        url = store.get_url_by_chain(chain)
+        multichain_name = store.get_multichain_name_by_id(chain.id)
+        resp = None
+        try:
+            # liststreamkeyitems streamref publisheraddress verbose count start localordering
+            resp = util.jsonrpc(multichain_name, url, "liststreamkeyitems", streamref, streamkey, True, count, start)
         except util.JsonrpcException as e:
             raise Exception("JSON-RPC error({0}): {1}".format(e.code, e.message))
         except IOError as e:
@@ -4084,10 +4298,13 @@ store._ddl['txout_approx'],
         script_type, data = chain.parse_txout_script(scriptpubkey)
         if script_type is Chain.SCRIPT_TYPE_MULTICHAIN_P2SH:
             label.append('P2SH')
+        if script_type in [Chain.SCRIPT_TYPE_MULTICHAIN_STREAM,
+            Chain.SCRIPT_TYPE_MULTICHAIN_STREAM_ITEM]:
+            label.append('Stream')
         if script_type in [Chain.SCRIPT_TYPE_MULTICHAIN, Chain.SCRIPT_TYPE_MULTICHAIN_P2SH]:
             data = util.get_multichain_op_drop_data(scriptpubkey)
             if data is not None:
-                opdrop_type, val = util.parse_op_drop_data(data)
+                opdrop_type, val = util.parse_op_drop_data(data, chain)
                 if opdrop_type==util.OP_DROP_TYPE_ISSUE_ASSET:
                     label.append('Asset')
                 elif opdrop_type==util.OP_DROP_TYPE_SEND_ASSET:
@@ -4101,11 +4318,29 @@ store._ddl['txout_approx'],
             else:
                 label.append('Unknown')
         elif script_type is Chain.SCRIPT_TYPE_MULTICHAIN_OP_RETURN:
-            opreturn_type, val = util.parse_op_return_data(data)
+            opreturn_type, val = util.parse_op_return_data(data, chain)
             if opreturn_type==util.OP_RETURN_TYPE_ISSUE_ASSET:
                 label.append('Asset')
             else:
                 label.append('Metadata')
+        # Protocol 10007
+        elif script_type in [Chain.SCRIPT_TYPE_MULTICHAIN_SPKN, Chain.SCRIPT_TYPE_MULTICHAIN_SPKU]:
+            data = util.get_multichain_op_drop_data(scriptpubkey)
+            if data is not None:
+                opdrop_type, val = util.parse_op_drop_data(data, chain)
+                if opdrop_type==util.OP_DROP_TYPE_FOLLOW_ON_ISSUANCE_METADATA:
+                    label.append('Asset')
+                elif opdrop_type==util.OP_DROP_TYPE_SPKN_NEW_ISSUE:
+                    label.append('Asset')
+                elif opdrop_type==util.OP_DROP_TYPE_SPKN_CREATE_STREAM:
+                    label.append('Stream')
+                elif opdrop_type==util.OP_DROP_TYPE_SPKE:
+                    pass
+                    #label.append('SPKE')
+            else:
+                label.append('Unknown')
+        elif script_type is Chain.SCRIPT_TYPE_MULTICHAIN_ENTITY_PERMISSION:
+            label.append('Permissions')
         return label
 
 def new(args):
