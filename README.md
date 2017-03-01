@@ -47,15 +47,27 @@ On CentOS, you will need to install the following dependencies:
     sudo pip install pycrypto
 
 
+MultiChain Compatibility
+------------------------
+
+The explorer supports the latest protocol version `10007`, which is the default for new blockchains created with MultiChain 1.0 alpha 27.
+
+The explorer also supports the legacy protocol version `10006`.  If you want to need to create a legacy chain, either use MultiChain 1.0 alpha 26 or create a chain using protocol `10006`:
+
+    multichain-util create [chain-name] 10006
+
+You can check the protocol version of an existing chain using the `getinfo` command. Support for the new protocol will be available shortly.
+
+
 Installation
 ------------
 
-To install MultiChain explorer for the current user (recommended):
+To install BVS Explorer for the current user (recommended):
 
     cd multichain-explorer
     python setup.py install --user
 
-If you have root permission and want to install MultiChain explorer for all users on the system:
+If you have root permission and want to install BVS Explorer for all users on the system:
 
     cd multichain-explorer
     sudo python setup.py install
@@ -63,7 +75,7 @@ If you have root permission and want to install MultiChain explorer for all user
 The explorer needs to connect to a local MultiChain node.  Before configuring the explorer, let's make sure you have a MultiChain blockchain up and running.
 
 
-Create and launch a MultiChain Blockchain
+Create and launch a BVS Explorer Blockchain
 -----------------------------------------
 
 If you do not yet have a chain you want to explore, [Download MultiChain](http://www.multichain.com/download-install/) to install MultiChain and create a chain named ````chain1```` as follows:
